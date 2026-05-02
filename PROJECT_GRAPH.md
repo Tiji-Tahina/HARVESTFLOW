@@ -4,62 +4,82 @@
 ```
 app/
 ├── __init__.py
-├── main.py          → FastAPI app, lifespan, 5 routers @ /api/v1
+├── main.py          → FastAPI app, lifespan, 8 routers @ /api/v1
 ├── config.py        → Settings(DATABASE_URL, APP_NAME, DEBUG)
 ├── database.py      → engine, async_session, class Base(DeclarativeBase), get_db()
 ├── models/__init__.py
-├── schemas/{farmer,product,listing,order,transporter}.py
-├── crud/{farmer,product,listing,order,transporter}.py
-└── routers/{farmers,products,listings,orders,transporters}.py
+├── schemas/{farmer,buyer,product,listing,order,transporter,shipment}.py
+├── crud/{farmer,buyer,product,listing,order,transporter,shipment,matching}.py
+└── routers/{farmers,buyers,products,listings,orders,transporters,shipments,matching}.py
 alembic/env.py, alembic.ini, script.py.mako
+alembic/versions/001_add_buyer_shipment_geo.py
 ```
 
 ## Models (app/models/__init__.py)
 ```
 class Farmer(Base):
-    id(UUID PK), name(Str 100), email(Str 255 unique idx), phone(Str 20?), location(Str 255?)
+    id(UUID PK), name, email(unique idx), phone?, location?
     created_at, updated_at
     → listings, orders
 
+class Buyer(Base):
+    id(UUID PK), name, email(unique idx), phone?, location?, geo(Geography POINT), preferred_categories(ARRAY?)
+    created_at, updated_at
+    → orders
+
 class Product(Base):
-    id(UUID PK), name(Str 100 idx), category(Str 100 idx), unit_of_measure(Str 20), description(Text?)
+    id(UUID PK), name(idx), category(idx), unit_of_measure, description?
     created_at
     → listings
 
 class Listing(Base):
-    id(UUID PK), farmer_id(FK farmers), product_id(FK products)
+    id(UUID PK), farmer_id(FK), product_id(FK)
     price_per_unit(10,2), quantity_available(10,2)
     status[enum: draft|active|sold_out] → default draft
+    harvest_date?, geo(Geography POINT)
     created_at, updated_at
     ← farmer, ← product → orders
 
 class Order(Base):
-    id(UUID PK), listing_id(FK listings), farmer_id(FK farmers), transporter_id(FK transporters?)
-    quantity(10,2), total_price(10,2), status[enum: pending|confirmed|in_transit|delivered|cancelled]
+    id(UUID PK), listing_id(FK), farmer_id(FK), buyer_id(FK)
+    quantity(10,2), total_price(10,2)
+    status[enum: pending|confirmed|in_transit|delivered|cancelled]
     created_at, updated_at
-    ← listing, ← farmer, ← transporter
+    ← listing, ← farmer, ← buyer → shipment
 
 class Transporter(Base):
-    id(UUID PK), name(Str 100), vehicle_type(Str 50), capacity_kg(10,2)
+    id(UUID PK), name, vehicle_type, capacity_kg(10,2)
     is_available[enum: available|unavailable|in_transit] → default available
-    phone(Str 20?), created_at, updated_at
-    → orders
+    phone?, geo(Geography POINT)
+    created_at, updated_at
+    → shipments
+
+class Shipment(Base):
+    id(UUID PK), order_id(FK unique), transporter_id(FK)
+    pickup_location, delivery_location
+    geo_pickup(Geography POINT), geo_delivery(Geography POINT)
+    estimated_delivery?, actual_delivery?
+    status[enum: scheduled|picked_up|in_transit|delivered|failed] → default scheduled
+    tracking_notes?
+    created_at, updated_at
+    ← order, ← transporter
 ```
 
 ## Schemas Pattern (per entity in app/schemas/)
 ```
-EntityBase(BaseModel)     → name/fields with Field(..., constraints)
+EntityBase(BaseModel)     → fields with Field(..., constraints)
 EntityCreate(EntityBase)  → pass (or extra required)
 EntityUpdate(BaseModel)   → optional fields with Field(None, ...)
 EntityRead(EntityBase)    → + id, timestamps, model_config = from_attributes
-EntityDetail(EntityRead)  → + nested relation dicts (only for listing, order)
+EntityDetail(EntityRead)  → + nested relation dicts (listing, order, shipment, buyer)
 ```
+**Geo handling**: Schema uses `latitude`/`longitude` floats (ge=-90..90, ge=-180..180). CRUD converts via `func.ST_SetSRID(func.ST_MakePoint(lon, lat), 4326)`.
 
 ## CRUD Pattern (per entity in app/crud/)
 ```python
 async def get_entities(db, skip=0, limit=100)  → select().offset().limit()
 async def get_entity(db, id)                    → select().where(id==), scalar_one_or_none()
-async def create_entity(db, entity)             → Model(**entity.model_dump()), flush, refresh
+async def create_entity(db, entity)             → Model(**entity.model_dump(exclude geo fields)), set geo, flush, refresh
 async def update_entity(db, id, entity)         → get, setattrs from model_dump(exclude_unset), flush, refresh
 async def delete_entity(db, id)                 → get, delete, flush → bool
 ```
@@ -79,6 +99,21 @@ DEL  "/{id}"  → delete(id), 204, 404 if None
 - `get_db()` → yields session, commit on success, rollback on error
 - Lifespan → `Base.metadata.create_all` via engine.begin()
 - Alembic env.py strips `+asyncpg` for offline migrations
+- Geo matching uses raw SQL via `text()` with PostGIS functions
+
+## Matching CRUD (app/crud/matching.py)
+```python
+async def get_supply_demand_summary(db)    → SELECT * FROM supply_demand_summary (materialized view)
+async def get_nearby_listings(db, lat, lon, radius_m, product_id?) → ST_DWithin on listings.geo
+async def get_available_transporters(db, lat, lon, radius_m, min_capacity?) → ST_DWithin on transporters.geo
+```
+
+## Matching Endpoints
+```
+GET /api/v1/matching/supply-demand
+GET /api/v1/matching/nearby-listings?latitude=&longitude=&radius_km=50&product_id=
+GET /api/v1/matching/available-transporters?latitude=&longitude=&radius_km=50&min_capacity_kg=
+```
 
 ## Enums
 | Field | Values |
@@ -86,12 +121,24 @@ DEL  "/{id}"  → delete(id), 204, 404 if None
 | Listing.status | draft, active, sold_out |
 | Order.status | pending, confirmed, in_transit, delivered, cancelled |
 | Transporter.is_available | available, unavailable, in_transit |
+| Shipment.status | scheduled, picked_up, in_transit, delivered, failed |
 
 ## Validation
 - `EmailStr` → requires `email-validator` package
 - `Field(..., gt=0)` → prices, quantities, capacity_kg
 - `Field(..., min_length=1, max_length=N)` → names
+- `Field(..., ge=-90, le=90)` → latitude
+- `Field(..., ge=-180, le=180)` → longitude
 - UUID v4 primary keys via `PG_UUID(as_uuid=True)`
+
+## DB Indexes & Optimization
+```
+idx_listings_active_product    → (status, product_id) WHERE status='active'
+idx_transporters_available     → (is_available, capacity_kg) WHERE is_available='available'
+idx_orders_buyer_status        → (buyer_id, status)
+ix_buyers_email                → email (unique)
+supply_demand_summary          → materialized view + idx on product_id
+```
 
 ## Commands
 ```

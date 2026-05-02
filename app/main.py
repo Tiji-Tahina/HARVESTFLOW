@@ -5,7 +5,16 @@ from fastapi import FastAPI
 from app.config import settings
 from app.database import engine
 from app.models import Base
-from app.routers import farmers, listings, orders, products, transporters
+from app.routers import (
+    buyers,
+    farmers,
+    listings,
+    matching,
+    orders,
+    products,
+    shipments,
+    transporters,
+)
 
 
 @asynccontextmanager
@@ -21,10 +30,13 @@ app = FastAPI(
 )
 
 app.include_router(farmers.router, prefix="/api/v1")
+app.include_router(buyers.router, prefix="/api/v1")
 app.include_router(products.router, prefix="/api/v1")
 app.include_router(listings.router, prefix="/api/v1")
 app.include_router(orders.router, prefix="/api/v1")
 app.include_router(transporters.router, prefix="/api/v1")
+app.include_router(shipments.router, prefix="/api/v1")
+app.include_router(matching.router, prefix="/api/v1")
 
 
 @app.get("/health")

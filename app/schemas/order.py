@@ -16,7 +16,7 @@ class OrderStatus(str, Enum):
 class OrderBase(BaseModel):
     listing_id: UUID
     farmer_id: UUID
-    transporter_id: UUID | None = None
+    buyer_id: UUID
     quantity: float = Field(..., gt=0)
 
 
@@ -25,7 +25,6 @@ class OrderCreate(OrderBase):
 
 
 class OrderUpdate(BaseModel):
-    transporter_id: UUID | None = None
     status: OrderStatus | None = None
 
 
@@ -42,4 +41,5 @@ class OrderRead(OrderBase):
 class OrderDetail(OrderRead):
     listing: dict | None = None
     farmer: dict | None = None
-    transporter: dict | None = None
+    buyer: dict | None = None
+    shipment: dict | None = None

@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Agritech marketplace backend. FastAPI + async SQLAlchemy + PostgreSQL.
+Agritech marketplace backend connecting farmers, buyers, and logistics. FastAPI + async SQLAlchemy + PostgreSQL (PostGIS).
 
 ## File Structure (all under `/home/tsinjo/Documents/1. Projects/HarvestFlow`)
 
@@ -10,13 +10,13 @@ Agritech marketplace backend. FastAPI + async SQLAlchemy + PostgreSQL.
 .venv/                         # virtual environment
 app/
 ├── __init__.py
-├── main.py                    # FastAPI app, lifespan creates tables, mounts 5 routers at /api/v1
+├── main.py                    # FastAPI app, lifespan creates tables, mounts 8 routers at /api/v1
 ├── config.py                  # Settings via pydantic-settings, reads .env
 ├── database.py                # async engine, async_session factory, Base class, get_db dependency
-├── models/__init__.py         # ALL 5 ORM models defined here (not split): Farmer, Product, Listing, Order, Transporter
-├── schemas/                   # one file per entity: farmer.py, product.py, listing.py, order.py, transporter.py
-├── crud/                      # one file per entity with async CRUD functions
-└── routers/                   # one file per entity with FastAPI APIRouter
+├── models/__init__.py         # ALL 7 ORM models: Farmer, Buyer, Product, Listing, Order, Transporter, Shipment
+├── schemas/                   # one file per entity: farmer.py, buyer.py, product.py, listing.py, order.py, transporter.py, shipment.py
+├── crud/                      # one file per entity + matching.py for supply-demand queries
+└── routers/                   # one file per entity + matching.py
 alembic/                       # migrations (autogenerate configured)
 alembic.ini
 requirements.txt
@@ -26,19 +26,22 @@ pyproject.toml                 # ruff + pyright config
 ## Key Conventions
 
 1. **Models**: All in `app/models/__init__.py` using SQLAlchemy 2.0 `Mapped`/`mapped_column` syntax
-2. **Schemas**: Per entity — `*Create`, `*Update`, `*Read` (+ `*Detail` for listings/orders with nested relations)
-3. **CRUD**: Async functions — `get_*`, `*_by_id`, `create_*`, `update_*`, `delete_*`. Always use `db.flush()` then `db.refresh()`.
-4. **Routers**: Each has prefix `/{resource}s`, tag for grouping. List endpoint uses `skip`/`limit` query params.
-5. **DB**: `get_db()` yields session, commits on success, rolls back on error. Lifespan calls `Base.metadata.create_all`.
-6. **Validation**: Pydantic v2 — `Field(..., gt=0)` for positives, `EmailStr` for emails, `Enum` for statuses.
-7. **Order total_price**: Computed in CRUD from `listing.price_per_unit × order.quantity`, NOT accepted from client.
+2. **Geo columns**: Use `Geography("POINT", srid=4326)` from `geoalchemy2` for spatial queries
+3. **Schemas**: Per entity — `*Create`, `*Update`, `*Read` (+ `*Detail` for listings/orders/shipments with nested relations)
+4. **Geo in schemas**: Use `latitude`/`longitude` float fields (validated ge=-90..90, ge=-180..180); CRUD converts to PostGIS `ST_SetSRID(ST_MakePoint(lon, lat), 4326)`
+5. **CRUD**: Async functions — `get_*`, `*_by_id`, `create_*`, `update_*`, `delete_*`. Always use `db.flush()` then `db.refresh()`.
+6. **Routers**: Each has prefix `/{resource}s`, tag for grouping. List endpoint uses `skip`/`limit` query params.
+7. **DB**: `get_db()` yields session, commits on success, rolls back on error. Lifespan calls `Base.metadata.create_all`.
+8. **Validation**: Pydantic v2 — `Field(..., gt=0)` for positives, `EmailStr` for emails, `Enum` for statuses.
+9. **Order total_price**: Computed in CRUD from `listing.price_per_unit × order.quantity`, NOT accepted from client.
 
 ## Model Relationships
 
 ```
-Farmer 1 ── N Listing N ── 1 Product
-Farmer 1 ── N Order N ── 1 Listing
-Transporter 1 ── N Order N ── 1 Listing
+Buyer 1 ── N Order 1 ── 1 Listing N ── 1 Product
+                       N ── 1 Farmer
+
+Order 1 ── 0..1 Shipment N ── 1 Transporter
 ```
 
 ## Status Enums
@@ -48,6 +51,15 @@ Transporter 1 ── N Order N ── 1 Listing
 | listing_status | draft, active, sold_out |
 | order_status | pending, confirmed, in_transit, delivered, cancelled |
 | transporter_status | available, unavailable, in_transit |
+| shipment_status | scheduled, picked_up, in_transit, delivered, failed |
+
+## Matching Endpoints
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/v1/matching/supply-demand` | Returns materialized view of supply vs demand by product |
+| `GET /api/v1/matching/nearby-listings` | Finds active listings within radius using PostGIS ST_DWithin |
+| `GET /api/v1/matching/available-transporters` | Finds available transporters near a location with capacity filter |
 
 ## Commands
 
@@ -72,3 +84,6 @@ Transporter 1 ── N Order N ── 1 Listing
 - Use `selectinload` in CRUD for eager-loading relationships
 - All IDs are UUID v4 (PostgreSQL `uuid` type via `PG_UUID(as_uuid=True)`)
 - Alembic `env.py` strips `+asyncpg` from URL for offline mode (sync driver needed)
+- PostGIS extension must be enabled: `CREATE EXTENSION postgis` (migration handles this)
+- Geo columns use `func.ST_SetSRID(func.ST_MakePoint(lon, lat), 4326)` — note lon comes first
+- Matching queries use raw SQL via `text()` for PostGIS functions

@@ -3,6 +3,7 @@ from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.crud import listing as listing_crud
 from app.models import Order
@@ -15,14 +16,13 @@ async def get_orders(db: AsyncSession, skip: int = 0, limit: int = 100) -> list[
 
 
 async def get_order(db: AsyncSession, order_id: UUID) -> Order | None:
-    from sqlalchemy.orm import selectinload
-
     result = await db.execute(
         select(Order)
         .options(
             selectinload(Order.listing),
             selectinload(Order.farmer),
-            selectinload(Order.transporter),
+            selectinload(Order.buyer),
+            selectinload(Order.shipment),
         )
         .where(Order.id == order_id)
     )
@@ -39,7 +39,7 @@ async def create_order(db: AsyncSession, order: OrderCreate) -> Order:
     db_order = Order(
         listing_id=order.listing_id,
         farmer_id=order.farmer_id,
-        transporter_id=order.transporter_id,
+        buyer_id=order.buyer_id,
         quantity=order.quantity,
         total_price=total_price,
     )

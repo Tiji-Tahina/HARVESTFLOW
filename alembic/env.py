@@ -7,7 +7,6 @@ target_metadata = Base.metadata
 
 
 def run_migrations_offline():
-    """Run migrations in 'offline' mode."""
     from alembic import context
     from sqlalchemy import create_engine
 
@@ -16,6 +15,7 @@ def run_migrations_offline():
         url=url,
         target_metadata=target_metadata,
         literal_binds=True,
+        render_as_batch=True,
     )
 
     with context.begin_transaction():
@@ -23,7 +23,6 @@ def run_migrations_offline():
 
 
 def run_migrations_online():
-    """Run migrations in 'online' mode."""
     import asyncio
     from alembic import context
     from sqlalchemy.ext.asyncio import AsyncEngine
