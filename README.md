@@ -72,6 +72,7 @@ app/
 | **GET** | `/matching/supply-demand` | Supply-demand summary by product |
 | **GET** | `/matching/nearby-listings` | Active listings within radius (PostGIS) |
 | **GET** | `/matching/available-transporters` | Available transporters with capacity filter |
+| **POST** | `/matching/find-listings` | Scored buyer-to-listing matching with combination suggestions |
 
 **Special logic**: `Order.total_price` is auto-calculated from `listing.price_per_unit × order.quantity` on creation.
 
@@ -82,6 +83,16 @@ All geo-matching uses PostGIS `ST_DWithin` for efficient radius searches:
 - `GET /matching/supply-demand` — materialized view aggregating supply (active listings) vs demand (open orders) by product
 - `GET /matching/nearby-listings?lat=&lon=&radius_km=50` — finds active listings near a location
 - `GET /matching/available-transporters?lat=&lon=&radius_km=50&min_capacity_kg=` — finds nearby transporters with sufficient capacity
+- `POST /matching/find-listings` — scores and ranks listings for a buyer based on distance, price, and quantity fulfillment:
+  ```json
+  {
+    "buyer_id": "uuid",
+    "product_id": "uuid (or product_category)",
+    "quantity": 100,
+    "max_distance_km": 200
+  }
+  ```
+  Returns individual matches with score breakdowns plus combination suggestions (multiple listings that together fulfill the order). Scoring formula: `0.4 × distance_score + 0.4 × price_score + 0.2 × quantity_score`.
 
 ## Validation
 

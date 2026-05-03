@@ -14,7 +14,7 @@ app/
 ├── config.py                  # Settings via pydantic-settings, reads .env
 ├── database.py                # async engine, async_session factory, Base class, get_db dependency
 ├── models/__init__.py         # ALL 7 ORM models: Farmer, Buyer, Product, Listing, Order, Transporter, Shipment
-├── schemas/                   # one file per entity: farmer.py, buyer.py, product.py, listing.py, order.py, transporter.py, shipment.py
+├── schemas/                   # one file per entity + matching.py for match request/response schemas
 ├── crud/                      # one file per entity + matching.py for supply-demand queries
 └── routers/                   # one file per entity + matching.py
 alembic/                       # migrations (autogenerate configured)
@@ -60,6 +60,7 @@ Order 1 ── 0..1 Shipment N ── 1 Transporter
 | `GET /api/v1/matching/supply-demand` | Returns materialized view of supply vs demand by product |
 | `GET /api/v1/matching/nearby-listings` | Finds active listings within radius using PostGIS ST_DWithin |
 | `GET /api/v1/matching/available-transporters` | Finds available transporters near a location with capacity filter |
+| `POST /api/v1/matching/find-listings` | Scores buyer-to-listing matches: `0.4×distance + 0.4×price + 0.2×quantity`. Returns ranked individual matches and combination suggestions that together fulfill the requested quantity. Accepts `buyer_id`, `product_id`/`product_category`, `quantity`, `max_distance_km`. |
 
 ## Commands
 

@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Query
 
 from app.crud import matching as matching_crud
 from app.database import get_db
+from app.schemas.matching import MatchRequest, MatchResponse
 
 router = APIRouter(prefix="/matching", tags=["matching"])
 
@@ -35,3 +36,19 @@ async def get_available_transporters(
     return await matching_crud.get_available_transporters(
         db, latitude, longitude, radius_km * 1000, min_capacity_kg
     )
+
+
+@router.post("/find-listings", response_model=MatchResponse)
+async def find_matching_listings(
+    request: MatchRequest,
+    db=Depends(get_db),
+):
+    result = await matching_crud.match_buyer_to_listings(
+        db=db,
+        buyer_id=request.buyer_id,
+        quantity=request.quantity,
+        max_distance_km=request.max_distance_km,
+        product_id=request.product_id,
+        product_category=request.product_category,
+    )
+    return result

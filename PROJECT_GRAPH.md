@@ -8,7 +8,7 @@ app/
 ├── config.py        → Settings(DATABASE_URL, APP_NAME, DEBUG)
 ├── database.py      → engine, async_session, class Base(DeclarativeBase), get_db()
 ├── models/__init__.py
-├── schemas/{farmer,buyer,product,listing,order,transporter,shipment}.py
+├── schemas/{farmer,buyer,product,listing,order,transporter,shipment,matching}.py
 ├── crud/{farmer,buyer,product,listing,order,transporter,shipment,matching}.py
 └── routers/{farmers,buyers,products,listings,orders,transporters,shipments,matching}.py
 alembic/env.py, alembic.ini, script.py.mako
@@ -106,13 +106,19 @@ DEL  "/{id}"  → delete(id), 204, 404 if None
 async def get_supply_demand_summary(db)    → SELECT * FROM supply_demand_summary (materialized view)
 async def get_nearby_listings(db, lat, lon, radius_m, product_id?) → ST_DWithin on listings.geo
 async def get_available_transporters(db, lat, lon, radius_m, min_capacity?) → ST_DWithin on transporters.geo
+async def match_buyer_to_listings(db, buyer_id, quantity, max_distance_km, product_id?, product_category?)
+  → Fetches buyer geo, queries active listings, scores by 0.4*dist + 0.4*price + 0.2*qty
+  → Returns individual matches + greedy combination suggestions
 ```
 
 ## Matching Endpoints
 ```
-GET /api/v1/matching/supply-demand
-GET /api/v1/matching/nearby-listings?latitude=&longitude=&radius_km=50&product_id=
-GET /api/v1/matching/available-transporters?latitude=&longitude=&radius_km=50&min_capacity_kg=
+GET  /api/v1/matching/supply-demand
+GET  /api/v1/matching/nearby-listings?latitude=&longitude=&radius_km=50&product_id=
+GET  /api/v1/matching/available-transporters?latitude=&longitude=&radius_km=50&min_capacity_kg=
+POST /api/v1/matching/find-listings
+  → body: {buyer_id, product_id|product_category, quantity, max_distance_km}
+  → returns: {individual_matches: [...], combination_matches: [...], total_candidates}
 ```
 
 ## Enums
