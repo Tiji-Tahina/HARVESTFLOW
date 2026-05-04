@@ -1,6 +1,6 @@
 # HarvesterFlow
 
-Agritech marketplace backend connecting farmers, buyers, and logistics providers. Built with FastAPI and PostgreSQL (PostGIS).
+Agritech marketplace backend connecting farmers, buyers, and logistics providers. Built with FastAPI and PostgreSQL (PostGIS). Includes a WhatsApp chatbot for farmers to submit harvest data via Meta Cloud API.
 
 ## Tech Stack
 
@@ -10,6 +10,8 @@ Agritech marketplace backend connecting farmers, buyers, and logistics providers
 - **asyncpg** — PostgreSQL async driver
 - **Pydantic v2** — request/response validation
 - **Alembic** — database migrations
+- **Redis** — WhatsApp chatbot session management
+- **httpx** — async HTTP client for WhatsApp API
 
 ## Setup
 
@@ -27,12 +29,18 @@ API docs at `http://localhost:8000/docs`
 ```
 app/
 ├── main.py              # FastAPI app, lifespan, router mounting
-├── config.py            # pydantic-settings (DATABASE_URL, etc.)
+├── config.py            # pydantic-settings (DATABASE_URL, WhatsApp, Redis)
 ├── database.py          # async engine, session factory, Base, get_db
 ├── models/__init__.py   # SQLAlchemy ORM models (7 entities)
 ├── schemas/             # Pydantic schemas (Create, Update, Read per entity)
 ├── crud/                # DB operations + supply-demand matching queries
-└── routers/             # FastAPI routers with validation
+├── routers/             # FastAPI routers with validation
+└── whatsapp/            # WhatsApp chatbot (Meta Cloud API)
+    ├── router.py        # Webhook endpoints
+    ├── webhook.py       # Message dispatcher
+    ├── flow.py          # Conversation state machine
+    ├── session.py       # Redis session store
+    └── templates.py     # Message builders
 ```
 
 ## Models
@@ -93,6 +101,41 @@ All geo-matching uses PostGIS `ST_DWithin` for efficient radius searches:
   }
   ```
   Returns individual matches with score breakdowns plus combination suggestions (multiple listings that together fulfill the order). Scoring formula: `0.4 × distance_score + 0.4 × price_score + 0.2 × quantity_score`.
+
+## WhatsApp Chatbot
+
+Farmers submit harvest data via WhatsApp using a conversational flow powered by Meta Cloud API with Redis session management.
+
+### Setup
+
+```bash
+# Add to .env
+WHATSAPP_VERIFY_TOKEN=your_verify_token
+WHATSAPP_PHONE_NUMBER_ID=your_phone_id
+WHATSAPP_ACCESS_TOKEN=your_access_token
+REDIS_URL=redis://localhost:6379/1
+```
+
+Ensure Redis is running: `redis-server`
+
+### Webhook
+
+Configure Meta Cloud API webhook URL to `https://your-domain/api/v1/whatsapp/webhook`
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/whatsapp/webhook` | Meta verification |
+| POST | `/api/v1/whatsapp/webhook` | Receives incoming messages |
+
+### Conversation Flow
+
+```
+New:  → Enter name → Share location (GPS) → Welcome menu
+All:  → Submit Harvest → Select product → Enter quantity → Enter price → Enter date → Share location → Confirm → Listing created
+Cmds: → "menu" → Return to main menu | "help" → Show help
+```
+
+Sessions expire after 15 minutes of inactivity. After 3 failed attempts on any input, the session resets.
 
 ## Validation
 

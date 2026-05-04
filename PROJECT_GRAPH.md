@@ -4,13 +4,19 @@
 ```
 app/
 ├── __init__.py
-├── main.py          → FastAPI app, lifespan, 8 routers @ /api/v1
-├── config.py        → Settings(DATABASE_URL, APP_NAME, DEBUG)
+├── main.py          → FastAPI app, lifespan, 9 routers @ /api/v1
+├── config.py        → Settings(DATABASE_URL, APP_NAME, DEBUG, WhatsApp, Redis)
 ├── database.py      → engine, async_session, class Base(DeclarativeBase), get_db()
 ├── models/__init__.py
 ├── schemas/{farmer,buyer,product,listing,order,transporter,shipment,matching}.py
 ├── crud/{farmer,buyer,product,listing,order,transporter,shipment,matching}.py
-└── routers/{farmers,buyers,products,listings,orders,transporters,shipments,matching}.py
+├── routers/{farmers,buyers,products,listings,orders,transporters,shipments,matching}.py
+└── whatsapp/
+    ├── router.py     → GET/POST /webhook (Meta verification + message handling)
+    ├── webhook.py    → dispatch_message() → routes by state + msg type
+    ├── flow.py       → state machine handlers (onboard, submit harvest, confirm)
+    ├── session.py    → Redis session store (TTL 900s), farmer phone lookup
+    └── templates.py  → text_msg, list_msg, button_msg, harvest_summary
 alembic/env.py, alembic.ini, script.py.mako
 alembic/versions/001_add_buyer_shipment_geo.py
 ```
@@ -121,6 +127,28 @@ POST /api/v1/matching/find-listings
   → returns: {individual_matches: [...], combination_matches: [...], total_candidates}
 ```
 
+## WhatsApp Endpoints
+```
+GET  /api/v1/whatsapp/webhook?hub.mode=&hub.verify_token=&hub.challenge  → verify (returns challenge)
+POST /api/v1/whatsapp/webhook                                             → receive messages
+```
+
+## WhatsApp Chatbot (app/whatsapp/)
+
+```
+Message Flow:
+  POST /webhook → parse WhatsApp payload → extract phone, msg_type, text/location/interactive
+    → Session(phone) lookup → current_state
+    → dispatch_message(phone, msg_type, text, location, interactive_reply, db)
+      → state handler → returns response dict → _send_to_whatsapp() → Meta Cloud API
+
+States: ONBOARD_NAME → ONBOARD_LOCATION → WELCOME → SUBMIT_PRODUCT → SUBMIT_QUANTITY →
+        SUBMIT_PRICE → SUBMIT_HARVEST_DATE → SUBMIT_LOCATION → CONFIRM_SUMMARY → [creates Listing]
+
+Session (Redis): wa:session:{phone} = {state, harvest_data, farmer_id, attempts} (TTL 900s)
+Farmer lookup: wa:phone:{phone} = farmer_id (TTL 9000s)
+```
+
 ## Enums
 | Field | Values |
 |---|---|
@@ -153,4 +181,5 @@ lint:   .venv/bin/ruff check app/
 format: .venv/bin/ruff format app/
 types:  .venv/bin/pyright app/
 migrate:.venv/bin/alembic revision --autogenerate -m "msg" && upgrade head
+redis:  redis-server  # required for WhatsApp chatbot
 ```

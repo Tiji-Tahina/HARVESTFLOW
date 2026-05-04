@@ -15,6 +15,7 @@ from app.routers import (
     shipments,
     transporters,
 )
+from app.whatsapp.router import router as whatsapp_router
 
 
 @asynccontextmanager
@@ -37,6 +38,7 @@ app.include_router(orders.router, prefix="/api/v1")
 app.include_router(transporters.router, prefix="/api/v1")
 app.include_router(shipments.router, prefix="/api/v1")
 app.include_router(matching.router, prefix="/api/v1")
+app.include_router(whatsapp_router, prefix="/api/v1")
 
 
 @app.get("/health")

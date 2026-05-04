@@ -10,13 +10,19 @@ Agritech marketplace backend connecting farmers, buyers, and logistics. FastAPI 
 .venv/                         # virtual environment
 app/
 ├── __init__.py
-├── main.py                    # FastAPI app, lifespan creates tables, mounts 8 routers at /api/v1
+├── main.py                    # FastAPI app, lifespan creates tables, mounts 9 routers at /api/v1
 ├── config.py                  # Settings via pydantic-settings, reads .env
 ├── database.py                # async engine, async_session factory, Base class, get_db dependency
 ├── models/__init__.py         # ALL 7 ORM models: Farmer, Buyer, Product, Listing, Order, Transporter, Shipment
 ├── schemas/                   # one file per entity + matching.py for match request/response schemas
 ├── crud/                      # one file per entity + matching.py for supply-demand queries
-└── routers/                   # one file per entity + matching.py
+├── routers/                   # one file per entity + matching.py
+└── whatsapp/                  # WhatsApp chatbot (Meta Cloud API integration)
+    ├── router.py              # Webhook endpoints (GET verify, POST handle)
+    ├── webhook.py             # Incoming message dispatcher
+    ├── flow.py                # State machine for conversation states
+    ├── session.py             # Redis session manager with TTL
+    └── templates.py           # WhatsApp message formatting helpers
 alembic/                       # migrations (autogenerate configured)
 alembic.ini
 requirements.txt
@@ -62,6 +68,47 @@ Order 1 ── 0..1 Shipment N ── 1 Transporter
 | `GET /api/v1/matching/available-transporters` | Finds available transporters near a location with capacity filter |
 | `POST /api/v1/matching/find-listings` | Scores buyer-to-listing matches: `0.4×distance + 0.4×price + 0.2×quantity`. Returns ranked individual matches and combination suggestions that together fulfill the requested quantity. Accepts `buyer_id`, `product_id`/`product_category`, `quantity`, `max_distance_km`. |
 
+## WhatsApp Chatbot
+
+Meta Cloud API integration at `/api/v1/whatsapp/webhook` for farmers to submit harvest data.
+
+### States
+
+| State | Trigger | Next |
+|---|---|---|
+| `ONBOARD_NAME` | Text reply (name) | `ONBOARD_LOCATION` |
+| `ONBOARD_LOCATION` | WhatsApp location share | `WELCOME` (creates Farmer) |
+| `WELCOME` | "menu" or first message | Interactive list menu |
+| `SUBMIT_PRODUCT` | Button selection or text | `SUBMIT_QUANTITY` |
+| `SUBMIT_QUANTITY` | Number | `SUBMIT_PRICE` |
+| `SUBMIT_PRICE` | Number | `SUBMIT_HARVEST_DATE` |
+| `SUBMIT_HARVEST_DATE` | Date or "today" | `SUBMIT_LOCATION` |
+| `SUBMIT_LOCATION` | WhatsApp location share | Summary + confirm |
+| Confirm | Yes → creates Listing, No → back to product | — |
+
+### Redis Keys
+
+- `wa:session:{phone}` — session payload with state + harvest_data (TTL 900s)
+- `wa:phone:{phone}` — farmer_id lookup for returning users (TTL 9000s)
+
+### Session Payload
+
+```json
+{
+  "phone": "+263771234567",
+  "state": "SUBMIT_QUANTITY",
+  "harvest_data": {"product_id": "...", "product_name": "Maize", "quantity": 500},
+  "farmer_id": "uuid-or-null",
+  "attempts": 0
+}
+```
+
+### Error Handling
+
+- 3 invalid attempts on any numeric/date input → session cleared, user must reply "menu"
+- Commands "menu" and "help" work from any state
+- Unknown messages get a reminder; after 3 attempts session resets
+
 ## Commands
 
 ```bash
@@ -76,6 +123,9 @@ Order 1 ── 0..1 Shipment N ── 1 Transporter
 .venv/bin/ruff check app/
 .venv/bin/ruff format app/
 .venv/bin/pyright app/
+
+# Redis (required for WhatsApp chatbot)
+redis-server
 ```
 
 ## Common Pitfalls
