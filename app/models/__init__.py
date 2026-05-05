@@ -171,3 +171,24 @@ class Shipment(Base):
 
     order: Mapped["Order"] = relationship(back_populates="shipment")
     transporter: Mapped["Transporter"] = relationship(back_populates="shipments")
+
+
+class PriceHistory(Base):
+    __tablename__ = "price_history"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    product_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("products.id")
+    )
+    region: Mapped[str] = mapped_column(String(100), index=True)
+    price_per_unit: Mapped[float] = mapped_column(Numeric(10, 2))
+    quantity: Mapped[float] = mapped_column(Numeric(10, 2))
+    transaction_date: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+    order_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("orders.id")
+    )
+
+    product: Mapped["Product"] = relationship()
+    order: Mapped["Order"] = relationship()

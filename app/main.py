@@ -6,11 +6,13 @@ from app.config import settings
 from app.database import engine
 from app.models import Base
 from app.routers import (
+    analytics,
     buyers,
     farmers,
     listings,
     matching,
     orders,
+    price_history,
     products,
     shipments,
     transporters,
@@ -38,6 +40,8 @@ app.include_router(orders.router, prefix="/api/v1")
 app.include_router(transporters.router, prefix="/api/v1")
 app.include_router(shipments.router, prefix="/api/v1")
 app.include_router(matching.router, prefix="/api/v1")
+app.include_router(price_history.router, prefix="/api/v1")
+app.include_router(analytics.router, prefix="/api/v1")
 app.include_router(whatsapp_router, prefix="/api/v1")
 
 
