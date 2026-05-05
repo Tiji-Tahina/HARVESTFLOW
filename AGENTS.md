@@ -10,19 +10,28 @@ Agritech marketplace backend connecting farmers, buyers, and logistics. FastAPI 
 .venv/                         # virtual environment
 app/
 ├── __init__.py
-├── main.py                    # FastAPI app, lifespan creates tables, mounts 9 routers at /api/v1
+├── main.py                    # FastAPI app, lifespan creates tables, mounts 11 routers at /api/v1
 ├── config.py                  # Settings via pydantic-settings, reads .env
 ├── database.py                # async engine, async_session factory, Base class, get_db dependency
-├── models/__init__.py         # ALL 7 ORM models: Farmer, Buyer, Product, Listing, Order, Transporter, Shipment
-├── schemas/                   # one file per entity + matching.py for match request/response schemas
-├── crud/                      # one file per entity + matching.py for supply-demand queries
-├── routers/                   # one file per entity + matching.py
+├── models/__init__.py         # ALL 8 ORM models: Farmer, Buyer, Product, Listing, Order, Transporter, Shipment, PriceHistory
+├── schemas/                   # one file per entity + matching.py, price_history.py, analytics.py
+├── crud/                      # one file per entity + matching.py, price_history.py, analytics.py
+├── routers/                   # one file per entity + matching.py, price_history.py, analytics.py
 └── whatsapp/                  # WhatsApp chatbot (Meta Cloud API integration)
     ├── router.py              # Webhook endpoints (GET verify, POST handle)
     ├── webhook.py             # Incoming message dispatcher
     ├── flow.py                # State machine for conversation states
     ├── session.py             # Redis session manager with TTL
     └── templates.py           # WhatsApp message formatting helpers
+frontend/                      # React buyer dashboard (Vite + React Router)
+    ├── src/
+    │   ├── App.jsx           # Main app with routing
+    │   ├── main.jsx          # Entry point
+    │   ├── pages/            # Listings, PlaceOrder
+    │   ├── services/api.js   # API calls to backend
+    │   └── styles/App.css   # Styles
+    ├── package.json
+    └── vite.config.js       # Proxy to backend
 alembic/                       # migrations (autogenerate configured)
 alembic.ini
 requirements.txt
@@ -48,6 +57,9 @@ Buyer 1 ── N Order 1 ── 1 Listing N ── 1 Product
                        N ── 1 Farmer
 
 Order 1 ── 0..1 Shipment N ── 1 Transporter
+
+PriceHistory N ── 1 Product
+PriceHistory 1 ── 1 Order
 ```
 
 ## Status Enums
@@ -67,6 +79,35 @@ Order 1 ── 0..1 Shipment N ── 1 Transporter
 | `GET /api/v1/matching/nearby-listings` | Finds active listings within radius using PostGIS ST_DWithin |
 | `GET /api/v1/matching/available-transporters` | Finds available transporters near a location with capacity filter |
 | `POST /api/v1/matching/find-listings` | Scores buyer-to-listing matches: `0.4×distance + 0.4×price + 0.2×quantity`. Returns ranked individual matches and combination suggestions that together fulfill the requested quantity. Accepts `buyer_id`, `product_id`/`product_category`, `quantity`, `max_distance_km`. |
+| `POST /api/v1/matching/dispatch` | Assigns nearest available transporter to order using PostGIS ST_DWithin |
+
+## Price History & Analytics
+
+### Price History Endpoints
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/v1/price-history/` | Record a transaction price |
+| `GET /api/v1/price-history/` | List price history (filter by product, region, date range) |
+| `GET /api/v1/price-history/averages` | Get average prices per product per region over time |
+
+### Analytics Endpoints
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/v1/analytics/supply-trends` | Supply trends over time (group by day/week/month) |
+| `GET /api/v1/analytics/demand-trends` | Demand trends over time |
+| `GET /api/v1/analytics/supply-demand-comparison` | Surplus/deficit by product & region |
+| `GET /api/v1/analytics/price-trends` | Price trends from transaction history |
+| `GET /api/v1/analytics/summary` | Overview with top products and trends |
+
+### Analytics Features
+
+- **Supply Trends**: Tracks listing quantities over time, grouped by day/week/month
+- **Demand Trends**: Tracks order quantities over time with regional breakdown
+- **Supply-Demand Comparison**: Identifies surplus/deficit regions for each product
+- **Price Trends**: Moving averages and price volatility from transaction history
+- **Auto-recording**: `record_order_price()` auto-records prices when orders are confirmed
 
 ## WhatsApp Chatbot
 

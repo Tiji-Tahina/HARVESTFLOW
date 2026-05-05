@@ -12,6 +12,7 @@ Agritech marketplace backend connecting farmers, buyers, and logistics providers
 - **Alembic** — database migrations
 - **Redis** — WhatsApp chatbot session management
 - **httpx** — async HTTP client for WhatsApp API
+- **React + Vite** — Buyer dashboard frontend
 
 ## Setup
 
