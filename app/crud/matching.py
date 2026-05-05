@@ -270,3 +270,74 @@ def _make_combo(combo_id: int, items: list[dict], requested_quantity: float) -> 
         "weighted_avg_price": round(weighted_avg_price, 4),
         "fulfillment_pct": round(fulfillment_pct, 2),
     }
+
+
+async def dispatch_order(
+    db: AsyncSession,
+    order_id: uuid.UUID,
+    search_radius_m: float = 50000,
+) -> dict:
+    from app.crud import order as order_crud, shipment as shipment_crud
+    from app.schemas.shipment import ShipmentCreate
+
+    order = await order_crud.get_order(db, order_id)
+    if not order:
+        raise ValueError("Order not found")
+    if order.shipment:
+        raise ValueError("Order already has a shipment")
+
+    listing = order.listing
+    if not listing or not listing.geo:
+        raise ValueError("Listing has no location data")
+
+    pickup_query = text(
+        "SELECT ST_Y(geo::geometry) AS lat, ST_X(geo::geometry) AS lon "
+        "FROM listings WHERE id = :lid"
+    )
+    pickup_lat_result = await db.execute(
+        pickup_query,
+        {"lid": str(listing.id)},
+    )
+    pickup = pickup_lat_result.mappings().one_or_none()
+    if not pickup:
+        raise ValueError("Could not determine pickup location")
+
+    transporters = await get_available_transporters(
+        db, pickup["lat"], pickup["lon"], search_radius_m, min_capacity_kg=float(order.quantity)
+    )
+
+    if not transporters:
+        raise ValueError("No available transporters found within radius")
+
+    nearest = transporters[0]
+
+    shipment_in = ShipmentCreate(
+        order_id=str(order_id),
+        transporter_id=nearest["id"],
+        pickup_location=listing.farmer.location or "Pickup location",
+        delivery_location=order.buyer.location or "Delivery location",
+        pickup_latitude=pickup["lat"],
+        pickup_longitude=pickup["lon"],
+        delivery_latitude=None,
+        delivery_longitude=None,
+    )
+
+    shipment = await shipment_crud.create_shipment(db, shipment_in)
+
+    await db.execute(
+        text("UPDATE orders SET status = 'confirmed' WHERE id = :oid"),
+        {"oid": str(order_id)},
+    )
+    await db.execute(
+        text("UPDATE transporters SET is_available = 'in_transit' WHERE id = :tid"),
+        {"tid": nearest["id"]},
+    )
+    await db.flush()
+
+    return {
+        "shipment_id": str(shipment.id),
+        "transporter_id": nearest["id"],
+        "transporter_name": nearest["name"],
+        "distance_m": nearest["distance_m"],
+        "status": "dispatched",
+    }
